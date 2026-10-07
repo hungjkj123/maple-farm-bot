@@ -26,7 +26,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với logic đọc Elixir thông minh và múi giờ Việt Nam!")
+    print("Bot đã sẵn sàng với bộ lọc Meso thông minh chống đọc nhầm!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -37,18 +37,16 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso
-        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.80), height))
+        # 1. Đọc Meso (Giới hạn chuẩn xác vùng chứa số Meso)
+        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        # 2. Đọc Elixir (Đã fix cứng chống đọc nhầm số lẻ như số 8, số 2)
+        # 2. Đọc Elixir
         crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
-
-        # Lọc lấy số hợp lý từ 100 đến 9999, nếu không tìm thấy trả về mặc định 1069
         elixir_val = next((n for n in elixir_numbers if 100 <= n <= 9999), 1069)
 
         if valid_mesos:
@@ -87,11 +85,13 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.80), height))
+        # 1. Đọc Meso kết thúc với vùng crop chuẩn xác tương tự
+        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
+        # 2. Đọc Elixir
         crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
@@ -103,7 +103,7 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
             
             e_end = next((n for n in elixir_numbers if 100 <= n <= 9999), start_elixir)
             if start_elixir - e_end > 500 or e_end < 10:
-                e_end = start_elixir # Fallback an toàn nếu đọc lỗi
+                e_end = start_elixir
 
             end_time = datetime.now(VN_TZ)
             start_time = data["start_time"]
@@ -113,10 +113,15 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
             minutes = int((duration.total_seconds() % 3600) // 60)
             
             earned = m_end - data["start_meso"]
+            
+            # Kiểm tra chống đọc nhầm số âm hoặc nhảy số quá vô lý
+            if earned < 0:
+                earned = 0
+
             used = start_elixir - e_end
             
             total_hours = duration.total_seconds() / 3600
-            meso_per_hour = int(earned / total_hours) if total_hours > 0 else 0
+            meso_per_hour = int(earned / total_hours) if total_hours > 0 else earned
 
             del active_shifts[user_id]
 
@@ -134,7 +139,7 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
                 f"----------------------------------------"
             )
         else:
-            await interaction.followup.send(f"⚠️ Không đọc được thông số kết thúc!")
+            await interaction.followup.send(f"⚠️ Không đọc được thông số kết thúc! Vui lòng thử lại.")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
