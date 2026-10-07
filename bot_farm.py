@@ -8,7 +8,6 @@ from PIL import Image
 import pytesseract
 
 
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 
 intents = discord.Intents.default()
