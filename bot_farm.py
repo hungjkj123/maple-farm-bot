@@ -1,7 +1,7 @@
 import io
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -12,8 +12,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Lưu trữ thông tin ca farm: {user_id: {"start_meso": ..., "start_elixir": ..., "start_time": ...}}
 active_shifts = {}
+
+# Múi giờ Việt Nam (UTC+7)
+VN_TZ = timezone(timedelta(hours=7))
 
 def preprocess_crop(pil_crop):
     gray = ImageOps.grayscale(pil_crop)
@@ -24,7 +26,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với tính năng tính thời gian và chống lỗi đọc Elixir!")
+    print("Bot đã cập nhật múi giờ Việt Nam và bộ lọc Elixir chuẩn xác!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -41,15 +43,17 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        # 2. Đọc Elixir
-        crop_elixir = pil_img.crop((int(width * 0.73), int(height * 0.93), int(width * 0.79), int(height * 0.99)))
+        # 2. Đọc Elixir (Tinh chỉnh lại vùng quét ngay sát ô Meso)
+        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 5]
 
         if valid_mesos:
             meso_val = max(valid_mesos)
-            elixir_val = max(elixir_numbers) if elixir_numbers else 1070
-            start_time = datetime.now()
+            # Lấy số có 4 chữ số (ví dụ 1069 hoặc 1070), nếu không thấy thì lấy số lớn nhất trong danh sách quét được
+            elixir_val = next((n for n in elixir_numbers if 1000 <= n <= 9999), max(elixir_numbers) if elixir_numbers else 0)
+            
+            start_time = datetime.now(VN_TZ)
 
             active_shifts[interaction.user.id] = {
                 "start_meso": meso_val,
@@ -88,27 +92,22 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        crop_elixir = pil_img.crop((int(width * 0.73), int(height * 0.93), int(width * 0.79), int(height * 0.99)))
+        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 5]
 
         if valid_mesos:
             m_end = max(valid_mesos)
-            
-            # Lấy thông tin ca cũ
             data = active_shifts[user_id]
             start_elixir = data["start_elixir"]
             
-            # Xử lý thông minh cho Elixir: Nếu OCR đọc hụt ra số quá nhỏ (như số 2), 
-            # ta kiểm tra xem nếu chênh lệch quá lớn so với ban đầu thì giữ nguyên hoặc suy luận lại.
-            e_end = max(elixir_numbers) if elixir_numbers else start_elixir
-            if start_elixir - e_end > 500 or e_end < 10: # Nếu số lượng sụt giảm bất thường do đọc nhầm
-                e_end = start_elixir - 1 # Tạm tính mặc định dùng 1 bình nếu OCR lỗi đọc số nhỏ
+            e_end = next((n for n in elixir_numbers if 1000 <= n <= 9999), max(elixir_numbers) if elixir_numbers else start_elixir)
+            if start_elixir - e_end > 500 or e_end < 10:
+                e_end = start_elixir # Fallback an toàn nếu đọc lỗi
 
-            end_time = datetime.now()
+            end_time = datetime.now(VN_TZ)
             start_time = data["start_time"]
             
-            # Tính thời gian farm
             duration = end_time - start_time
             hours = int(duration.total_seconds() // 3600)
             minutes = int((duration.total_seconds() % 3600) // 60)
@@ -116,7 +115,6 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
             earned = m_end - data["start_meso"]
             used = start_elixir - e_end
             
-            # Tính tốc độ Meso/giờ
             total_hours = duration.total_seconds() / 3600
             meso_per_hour = int(earned / total_hours) if total_hours > 0 else 0
 
