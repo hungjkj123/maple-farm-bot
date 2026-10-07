@@ -2,81 +2,13 @@ import io
 import os
 import re
 import discord
-from discord import app_commands
 from discord.ext import commands
 from PIL import Image
 import pytesseract
-import requests
 
-# Cấu hình intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# Lưu trữ ca farm tạm thời của từng người
-active_shifts = {}
-
-
-class StartShiftModal(discord.ui.Modal, title="Bắt đầu ca farm"):
-  meso_start = discord.ui.TextInput(
-      label="Số Meso lúc đầu", placeholder="Ví dụ: 1000000", required=True
-  )
-  elixir_start = discord.ui.TextInput(
-      label="Số bình Elixir lúc đầu", placeholder="Ví dụ: 200", required=True
-  )
-
-  async def on_submit(self, interaction: discord.Interaction):
-    try:
-      m = int(self.meso_start.value.replace(",", "").replace(".", ""))
-      e = int(self.elixir_start.value.replace(",", ""))
-      active_shifts[interaction.user.id] = {"start_meso": m, "start_elixir": e}
-      await interaction.response.send_message(
-          f"🚀 **ĐÃ BẮT ĐẦU CA!**\n💰 Meso đầu: `{m:,}` | 🧪 Elixir đầu:"
-          f" `{e:,}`",
-          ephemeral=True,
-      )
-    except ValueError:
-      await interaction.response.send_message(
-          "⚠️ Vui lòng chỉ nhập số hợp lệ!", ephemeral=True
-      )
-
-
-class EndShiftModal(discord.ui.Modal, title="Kết thúc ca farm"):
-  meso_end = discord.ui.TextInput(
-      label="Số Meso lúc sau", placeholder="Ví dụ: 2500000", required=True
-  )
-  elixir_end = discord.ui.TextInput(
-      label="Số bình Elixir còn lại", placeholder="Ví dụ: 130", required=True
-  )
-
-  async def on_submit(self, interaction: discord.Interaction):
-    user_id = interaction.user.id
-    if user_id not in active_shifts:
-      await interaction.response.send_message(
-          "⚠️ Bạn chưa bấm bắt đầu ca!", ephemeral=True
-      )
-      return
-    try:
-      m_end = int(self.meso_end.value.replace(",", "").replace(".", ""))
-      e_end = int(self.elixir_end.value.replace(",", ""))
-
-      data = active_shifts[user_id]
-      earned = m_end - data["start_meso"]
-      used = data["start_elixir"] - e_end
-      del active_shifts[user_id]
-
-      report = (
-          f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
-          f"----------------------------------------\n"
-          f"💰 **Meso kiếm được:** `+{earned:,}`\n"
-          f"🧪 **Elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
-          f"----------------------------------------"
-      )
-      await interaction.response.send_message(report)
-    except ValueError:
-      await interaction.response.send_message(
-          "⚠️ Vui lòng chỉ nhập số hợp lệ!", ephemeral=True
-      )
 
 
 class FarmControlView(discord.ui.View):
@@ -92,7 +24,45 @@ class FarmControlView(discord.ui.View):
   async def start_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
   ):
-    await interaction.response.send_modal(StartShiftModal())
+    await interaction.response.send_message(
+        "🟢 **Bắt đầu ca:** Vui lòng gửi/kéo thả ảnh chụp màn hình chứa Meso &"
+        " Elixir vào khung chat trong vòng 60 giây tới nhé!",
+        ephemeral=True,
+    )
+
+    def check(m):
+      return (
+          m.author == interaction.user
+          and m.channel == interaction.channel
+          and len(m.attachments) > 0
+      )
+
+    try:
+      msg = await bot.wait_for("message", timeout=60.0, check=check)
+      attachment = msg.attachments[0]
+
+      image_bytes = await attachment.read()
+      image = Image.open(io.BytesIO(image_bytes))
+      text = pytesseract.image_to_string(image)
+
+      numbers = re.findall(r"\d+", text.replace(",", ""))
+
+      if len(numbers) >= 2:
+        meso_val = int(numbers[0])
+        elixir_val = int(numbers[1])
+        await interaction.followup.send(
+            f"✅ **Đọc thông số Bắt đầu ca thành công!**\n- Meso: `{meso_val:,}`\n-"
+            f" Elixir: `{elixir_val:,}`"
+        )
+      else:
+        await interaction.followup.send(
+            "⚠️ Không nhận diện được đủ thông số từ ảnh. Bạn hãy thử chụp rõ hơn"
+            " nhé!"
+        )
+    except Exception:
+      await interaction.followup.send(
+          "⏱️ Hết thời gian chờ gửi ảnh hoặc có lỗi xảy ra!", ephemeral=True
+      )
 
   @discord.ui.button(
       label="🔴 Kết thúc ca",
@@ -102,19 +72,55 @@ class FarmControlView(discord.ui.View):
   async def end_button(
       self, interaction: discord.Interaction, button: discord.ui.Button
   ):
-    await interaction.response.send_modal(EndShiftModal())
+    await interaction.response.send_message(
+        "🔴 **Kết thúc ca:** Vui lòng gửi/kéo thả ảnh chụp màn hình tổng kết vào"
+        " khung chat trong vòng 60 giây tới nhé!",
+        ephemeral=True,
+    )
+
+    def check(m):
+      return (
+          m.author == interaction.user
+          and m.channel == interaction.channel
+          and len(m.attachments) > 0
+      )
+
+    try:
+      msg = await bot.wait_for("message", timeout=60.0, check=check)
+      attachment = msg.attachments[0]
+
+      image_bytes = await attachment.read()
+      image = Image.open(io.BytesIO(image_bytes))
+      text = pytesseract.image_to_string(image)
+
+      numbers = re.findall(r"\d+", text.replace(",", ""))
+
+      if len(numbers) >= 2:
+        meso_val = int(numbers[0])
+        elixir_val = int(numbers[1])
+        await interaction.followup.send(
+            f"✅ **Đọc thông số Kết thúc ca thành công!**\n- Meso:"
+            f" `{meso_val:,}`\n- Elixir: `{elixir_val:,}`"
+        )
+      else:
+        await interaction.followup.send(
+            "⚠️ Không nhận diện được đủ thông số từ ảnh. Bạn hãy thử chụp rõ hơn"
+            " nhé!"
+        )
+    except Exception:
+      await interaction.followup.send(
+          "⏱️ Hết thời gian chờ gửi ảnh hoặc có lỗi xảy ra!", ephemeral=True
+      )
 
 
 @bot.event
 async def on_ready():
   await bot.tree.sync()
-  print(f"Bot {bot.user} đã sẵn sàng hoạt động!")
+  print(f"Bot {bot.user} đã sẵn sàng!")
 
 
-@bot.tree.command(
-    name="farm", description="Mở bảng điều khiển tính Meso & Elixir"
-)
-async def farm_panel(interaction: discord.Interaction):
+@bot.tree.command(name="farm", description="Mở bảng điều khiển quản lý ca farm")
+async def farm(interaction: discord.Interaction):
   view = FarmControlView()
   await interaction.response.send_message(
       "🎮 **QUẢN LÝ MESO & ELIXIR MAPLE**\nBấm nút bên dưới để bắt đầu/kết thúc"
@@ -123,9 +129,6 @@ async def farm_panel(interaction: discord.Interaction):
   )
 
 
-# Lấy Token từ biến môi trường trên Railway
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
   bot.run(TOKEN)
-else:
-  print("Lỗi: Không tìm thấy DISCORD_TOKEN trong biến môi trường!")
