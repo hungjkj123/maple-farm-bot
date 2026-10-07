@@ -73,44 +73,44 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
 async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
   await interaction.response.defer(thinking=True)
 
-user_id = interaction.user.id
-if user_id not in active_shifts:
-  await interaction.followup.send(
-      "⚠️ Bạn chưa bắt đầu ca nào cả! Hãy dùng lệnh `/batdau` trước nhé."
-  )
-  return
-
-try:
-  image_bytes = await image.read()
-  pil_img = Image.open(io.BytesIO(image_bytes))
-  text = pytesseract.image_to_string(pil_img)
-
-  numbers = re.findall(r"\d+", text.replace(",", ""))
-
-  if len(numbers) >= 2:
-    m_end = int(numbers[0])
-    e_end = int(numbers[1])
-
-    data = active_shifts[user_id]
-    earned = m_end - data["start_meso"]
-    used = data["start_elixir"] - e_end
-    del active_shifts[user_id]
-
-    report = (
-        f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
-        f"----------------------------------------\n"
-        f"💰 **Meso kiếm được:** `+{earned:,}`\n"
-        f"🧪 **Elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
-        f"----------------------------------------"
-    )
-    await interaction.followup.send(report)
-  else:
+  user_id = interaction.user.id
+  if user_id not in active_shifts:
     await interaction.followup.send(
-        "⚠️ Không đọc được thông số từ ảnh tổng kết. Hãy chắc chắn ảnh chụp rõ"
-        " số liệu!"
+        "⚠️ Bạn chưa bắt đầu ca nào cả! Hãy dùng lệnh `/batdau` trước nhé."
     )
-except Exception as e:
-  await interaction.followup.send(f"❌ Lỗi xử lý ảnh: `{str(e)}`")
+    return
+
+  try:
+    image_bytes = await image.read()
+    pil_img = Image.open(io.BytesIO(image_bytes))
+    text = pytesseract.image_to_string(pil_img)
+
+    numbers = re.findall(r"\d+", text.replace(",", ""))
+
+    if len(numbers) >= 2:
+      m_end = int(numbers[0])
+      e_end = int(numbers[1])
+
+      data = active_shifts[user_id]
+      earned = m_end - data["start_meso"]
+      used = data["start_elixir"] - e_end
+      del active_shifts[user_id]
+
+      report = (
+          f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
+          f"----------------------------------------\n"
+          f"💰 **Meso kiếm được:** `+{earned:,}`\n"
+          f"🧪 **Elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
+          f"----------------------------------------"
+      )
+      await interaction.followup.send(report)
+    else:
+      await interaction.followup.send(
+          "⚠️ Không đọc được thông số từ ảnh tổng kết. Hãy chắc chắn ảnh chụp rõ"
+          " số liệu!"
+      )
+  except Exception as e:
+    await interaction.followup.send(f"❌ Lỗi xử lý ảnh: `{str(e)}`")
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
