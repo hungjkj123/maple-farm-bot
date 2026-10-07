@@ -14,7 +14,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 active_shifts = {}
 
 def preprocess_crop(pil_crop):
-    """Xử lý phóng to và tăng độ tương phản cho vùng cắt để OCR đọc chuẩn nhất"""
     gray = ImageOps.grayscale(pil_crop)
     contrast = ImageEnhance.Contrast(gray).enhance(3.5)
     resized = contrast.resize((pil_crop.width * 3, pil_crop.height * 3), Image.Resampling.LANCZOS)
@@ -23,7 +22,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với định dạng cắt vùng chuẩn xác!")
+    print("Bot đã sẵn sàng với bản debug tọa độ!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -34,23 +33,23 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Cắt vùng chứa Meso (Góc dưới bên phải, ngay dưới bảng inventory)
-        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.77), int(height * 0.99)))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
+        # Mở rộng vùng quét Meso rộng hơn một chút để chắc chắn ôm trọn con số
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.80), height))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6')
         
-        # Lọc lấy số Meso
-        numbers_meso = re.findall(r'\d+', text_meso.replace(',', ''))
-        meso_val = int(max(numbers_meso, key=len)) if numbers_meso else 0
+        # Lọc mọi con số có từ 6 chữ số trở lên trong vùng này
+        all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
+        valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        # 2. Cắt vùng chứa Elixir (Thanh Quick Slot phía dưới bên phải, chỗ có số 1070)
-        crop_elixir = pil_img.crop((int(width * 0.70), int(height * 0.89), int(width * 0.92), int(height * 0.96)))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
-        
-        # Lọc lấy số bình elixir (thường có từ 1 đến 4 chữ số)
-        numbers_elixir = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 4]
-        elixir_val = numbers_elixir[0] if numbers_elixir else 1070
+        # Vùng Elixir
+        crop_elixir = pil_img.crop((int(width * 0.65), int(height * 0.85), width, height))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6')
+        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 4]
 
-        if meso_val > 0:
+        if valid_mesos:
+            meso_val = max(valid_mesos)
+            elixir_val = elixir_numbers[0] if elixir_numbers else 1070
+
             active_shifts[interaction.user.id] = {
                 "start_meso": meso_val,
                 "start_elixir": elixir_val,
@@ -61,7 +60,10 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
                 f"🧪 Elixir đầu: `{elixir_val:,}`"
             )
         else:
-            await interaction.followup.send(f"⚠️ Không đọc được số Meso. Vui lòng kiểm tra lại ảnh chụp.")
+            await interaction.followup.send(
+                f"⚠️ Không đọc được số Meso.\n"
+                f"📝 Text thô bot quét được ở vùng Meso: ```{text_meso}```"
+            )
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
@@ -79,17 +81,19 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.77), int(height * 0.99)))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
-        numbers_meso = re.findall(r'\d+', text_meso.replace(',', ''))
-        m_end = int(max(numbers_meso, key=len)) if numbers_meso else 0
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.80), height))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6')
+        all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
+        valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        crop_elixir = pil_img.crop((int(width * 0.70), int(height * 0.89), int(width * 0.92), int(height * 0.96)))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
-        numbers_elixir = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 4]
-        e_end = numbers_elixir[0] if numbers_elixir else 0
+        crop_elixir = pil_img.crop((int(width * 0.65), int(height * 0.85), width, height))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6')
+        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 4]
 
-        if m_end > 0:
+        if valid_mesos:
+            m_end = max(valid_mesos)
+            e_end = elixir_numbers[0] if elixir_numbers else 0
+
             data = active_shifts[user_id]
             earned = m_end - data["start_meso"]
             used = data["start_elixir"] - e_end
@@ -103,7 +107,7 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
                 f"----------------------------------------"
             )
         else:
-            await interaction.followup.send(f"⚠️ Không đọc được thông số tổng kết từ ảnh!")
+            await interaction.followup.send(f"⚠️ Không đọc được thông số kết thúc! Text: ```{text_meso}```")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
