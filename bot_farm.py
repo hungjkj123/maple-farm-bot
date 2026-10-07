@@ -13,10 +13,24 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 active_shifts = {}
 
+def process_image_safely(pil_img):
+    """Cắt thẳng vùng góc dưới bên phải (nơi chứa Meso và Quick Slot) để OCR cực kỳ chính xác"""
+    width, height = pil_img.size
+    # Cắt góc dưới bên phải: từ 60% đến 100% chiều ngang, và từ 85% đến 100% chiều dọc
+    box = (int(width * 0.60), int(height * 0.85), width, height)
+    cropped = pil_img.crop(box)
+    
+    # Phóng to và tăng độ tương phản để OCR dễ đọc số
+    gray = ImageOps.grayscale(cropped)
+    contrast = ImageEnhance.Contrast(gray).enhance(3.5)
+    resized = contrast.resize((cropped.width * 3, cropped.height * 3), Image.Resampling.LANCZOS)
+    
+    return resized
+
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Bot đã sẵn sàng với chế độ quét toàn ảnh thông minh!")
+    print(f"Bot đã cập nhật cơ chế đọc vùng an toàn!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm")
 @app_commands.describe(image="Ảnh chụp màn hình game")
@@ -26,25 +40,20 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         image_bytes = await image.read()
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
-        # Tiền xử lý toàn bộ ảnh để chữ rõ nét nhất
-        gray = ImageOps.grayscale(pil_img)
-        contrast = ImageEnhance.Contrast(gray).enhance(3.0)
-        text = pytesseract.image_to_string(contrast, config='--psm 6')
+        processed_crop = process_image_safely(pil_img)
+        text = pytesseract.image_to_string(processed_crop, config='--psm 6')
         
-        # Tìm tất cả các con số có dấu phẩy (dạng Meso: xx,xxx,xxx)
-        meso_matches = re.findall(r'\d{1,3},\d{3},\d{3}', text)
-        if not meso_matches:
-            # Fallback: tìm các chuỗi số dài liên tiếp nếu không có dấu phẩy
-            long_nums = [n for n in re.findall(r'\d+', text) if len(n) >= 7]
-            meso_val = int(max(long_nums, key=len)) if long_nums else 0
-        else:
-            meso_val = int(meso_matches[0].replace(',', ''))
+        # Tìm tất cả các con số có từ 6 chữ số trở lên (đặc thù của số Meso)
+        all_numbers = re.findall(r'\d+', text.replace(',', '').replace('.', ''))
+        valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
+        
+        # Tìm số elixir (số ngắn ở quick slot, thường từ 1 đến 4 chữ số)
+        valid_elixirs = [int(n) for n in all_numbers if 1 <= len(n) <= 4]
 
-        # Tìm số lượng bình elixir (các số ngắn hơn ở vùng quick slot)
-        all_nums = [int(n) for n in re.findall(r'\d+', text) if len(n) < 4]
-        elixir_val = all_nums[0] if all_nums else 1070 # Mặc định lấy số đầu tiên hoặc số quen thuộc
+        if valid_mesos:
+            meso_val = max(valid_mesos) # Lấy số lớn nhất (chính là Meso)
+            elixir_val = valid_elixirs[0] if valid_elixirs else 1070
 
-        if meso_val > 0:
             active_shifts[interaction.user.id] = {
                 "start_meso": meso_val,
                 "start_elixir": elixir_val,
@@ -55,7 +64,8 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
                 f"🧪 Elixir đầu: `{elixir_val:,}`"
             )
         else:
-            await interaction.followup.send("⚠️ Không tìm thấy số Meso trong ảnh. Bạn hãy kiểm tra lại khung hình nhé!")
+            # Gửi kèm đoạn text OCR để debug nếu vẫn lỗi
+            await interaction.followup.send(f"⚠️ Không tìm thấy số Meso. Text đọc được từ ảnh: ```{text}```")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
@@ -72,21 +82,17 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         image_bytes = await image.read()
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
-        gray = ImageOps.grayscale(pil_img)
-        contrast = ImageEnhance.Contrast(gray).enhance(3.0)
-        text = pytesseract.image_to_string(contrast, config='--psm 6')
+        processed_crop = process_image_safely(pil_img)
+        text = pytesseract.image_to_string(processed_crop, config='--psm 6')
         
-        meso_matches = re.findall(r'\d{1,3},\d{3},\d{3}', text)
-        if not meso_matches:
-            long_nums = [n for n in re.findall(r'\d+', text) if len(n) >= 7]
-            m_end = int(max(long_nums, key=len)) if long_nums else 0
-        else:
-            m_end = int(meso_matches[0].replace(',', ''))
+        all_numbers = re.findall(r'\d+', text.replace(',', '').replace('.', ''))
+        valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
+        valid_elixirs = [int(n) for n in all_numbers if 1 <= len(n) <= 4]
 
-        all_nums = [int(n) for n in re.findall(r'\d+', text) if len(n) < 4]
-        e_end = all_nums[0] if all_nums else 0
+        if valid_mesos:
+            m_end = max(valid_mesos)
+            e_end = valid_elixirs[0] if valid_elixirs else 0
 
-        if m_end > 0:
             data = active_shifts[user_id]
             earned = m_end - data["start_meso"]
             used = data["start_elixir"] - e_end
@@ -100,9 +106,9 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
                 f"----------------------------------------"
             )
         else:
-            await interaction.followup.send("⚠️ Không đọc được thông số từ ảnh tổng kết!")
+            await interaction.followup.send(f"⚠️ Không đọc được thông số tổng kết! Text đọc được: ```{text}```")
     except Exception as e:
-        await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
+        await interaction.followup.send(f"❌ Lỗi xử/lý: `{str(e)}`")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
