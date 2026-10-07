@@ -2,6 +2,7 @@ import io
 import os
 import re
 import discord
+from discord import app_commands
 from discord.ext import commands
 from PIL import Image
 import pytesseract
@@ -10,123 +11,106 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-
-class FarmControlView(discord.ui.View):
-
-  def __init__(self):
-    super().__init__(timeout=None)
-
-  @discord.ui.button(
-      label="🟢 Bắt đầu ca",
-      style=discord.ButtonStyle.green,
-      custom_id="btn_start",
-  )
-  async def start_button(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    await interaction.response.send_message(
-        "🟢 **Bắt đầu ca:** Vui lòng gửi/kéo thả ảnh chụp màn hình chứa Meso &"
-        " Elixir vào khung chat trong vòng 60 giây tới nhé!",
-        ephemeral=True,
-    )
-
-    def check(m):
-      return (
-          m.author == interaction.user
-          and m.channel == interaction.channel
-          and len(m.attachments) > 0
-      )
-
-    try:
-      msg = await bot.wait_for("message", timeout=60.0, check=check)
-      attachment = msg.attachments[0]
-
-      image_bytes = await attachment.read()
-      image = Image.open(io.BytesIO(image_bytes))
-      text = pytesseract.image_to_string(image)
-
-      numbers = re.findall(r"\d+", text.replace(",", ""))
-
-      if len(numbers) >= 2:
-        meso_val = int(numbers[0])
-        elixir_val = int(numbers[1])
-        await interaction.followup.send(
-            f"✅ **Đọc thông số Bắt đầu ca thành công!**\n- Meso: `{meso_val:,}`\n-"
-            f" Elixir: `{elixir_val:,}`"
-        )
-      else:
-        await interaction.followup.send(
-            "⚠️ Không nhận diện được đủ thông số từ ảnh. Bạn hãy thử chụp rõ hơn"
-            " nhé!"
-        )
-    except Exception:
-      await interaction.followup.send(
-          "⏱️ Hết thời gian chờ gửi ảnh hoặc có lỗi xảy ra!", ephemeral=True
-      )
-
-  @discord.ui.button(
-      label="🔴 Kết thúc ca",
-      style=discord.ButtonStyle.red,
-      custom_id="btn_end",
-  )
-  async def end_button(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    await interaction.response.send_message(
-        "🔴 **Kết thúc ca:** Vui lòng gửi/kéo thả ảnh chụp màn hình tổng kết vào"
-        " khung chat trong vòng 60 giây tới nhé!",
-        ephemeral=True,
-    )
-
-    def check(m):
-      return (
-          m.author == interaction.user
-          and m.channel == interaction.channel
-          and len(m.attachments) > 0
-      )
-
-    try:
-      msg = await bot.wait_for("message", timeout=60.0, check=check)
-      attachment = msg.attachments[0]
-
-      image_bytes = await attachment.read()
-      image = Image.open(io.BytesIO(image_bytes))
-      text = pytesseract.image_to_string(image)
-
-      numbers = re.findall(r"\d+", text.replace(",", ""))
-
-      if len(numbers) >= 2:
-        meso_val = int(numbers[0])
-        elixir_val = int(numbers[1])
-        await interaction.followup.send(
-            f"✅ **Đọc thông số Kết thúc ca thành công!**\n- Meso:"
-            f" `{meso_val:,}`\n- Elixir: `{elixir_val:,}`"
-        )
-      else:
-        await interaction.followup.send(
-            "⚠️ Không nhận diện được đủ thông số từ ảnh. Bạn hãy thử chụp rõ hơn"
-            " nhé!"
-        )
-    except Exception:
-      await interaction.followup.send(
-          "⏱️ Hết thời gian chờ gửi ảnh hoặc có lỗi xảy ra!", ephemeral=True
-      )
+# Lưu trữ tạm thời trạng thái ca farm của người dùng
+active_shifts = {}
 
 
 @bot.event
 async def on_ready():
   await bot.tree.sync()
-  print(f"Bot {bot.user} đã sẵn sàng!")
+  print(f"Bot {bot.user} đã sẵn sàng với tính năng OCR!")
 
 
-@bot.tree.command(name="farm", description="Mở bảng điều khiển quản lý ca farm")
-async def farm(interaction: discord.Interaction):
-  view = FarmControlView()
-  await interaction.response.send_message(
-      "🎮 **QUẢN LÝ MESO & ELIXIR MAPLE**\nBấm nút bên dưới để bắt đầu/kết thúc"
-      " ca:",
-      view=view,
+@bot.tree.command(
+    name="batdau",
+    description="Bắt đầu ca farm mới bằng cách tải lên ảnh chụp màn hình",
+)
+@app_commands.describe(
+    image="Ảnh chụp màn hình chứa số Meso và Elixir ban đầu"
+)
+async def batdau(interaction: discord.Interaction, image: discord.Attachment):
+  await interaction.response.defer(thinking=True)
+
+  try:
+    # Tải ảnh và dùng Tesseract quét chữ
+    image_bytes = await image.read()
+    pil_img = Image.open(io.BytesIO(image_bytes))
+    text = pytesseract.image_to_string(pil_img)
+
+    # Lọc các con số xuất hiện trong ảnh
+    numbers = re.findall(r"\d+", text.replace(",", ""))
+
+    if len(numbers) >= 2:
+      meso_val = int(numbers[0])
+      elixir_val = int(numbers[1])
+
+      active_shifts[interaction.user.id] = {
+          "start_meso": meso_val,
+          "start_elixir": elixir_val,
+      }
+
+      await interaction.followup.send(
+          f"🟢 **ĐÃ BẮT ĐẦU CA THÀNH CÔNG!**\n"
+          f"💰 Meso đầu: `{meso_val:,}`\n"
+          f"🧪 Elixir đầu: `{elixir_val:,}`"
+      )
+    else:
+      await interaction.followup.send(
+          "⚠️ Không tìm thấy đủ thông số Meso và Elixir từ ảnh. Bạn hãy thử chụp"
+          " lại rõ hơn nhé!"
+      )
+  except Exception as e:
+    await interaction.followup.send(f"❌ Lỗi xử lý ảnh: `{str(e)}`")
+
+
+@bot.tree.command(
+    name="ketthuc",
+    description="Kết thúc ca farm bằng cách tải lên ảnh chụp màn hình tổng kết",
+)
+@app_commands.describe(
+    image="Ảnh chụp màn hình chứa số Meso và Elixir lúc kết thúc"
+)
+async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
+  await interaction.response.defer(thinking=True)
+
+user_id = interaction.user.id
+if user_id not in active_shifts:
+  await interaction.followup.send(
+      "⚠️ Bạn chưa bắt đầu ca nào cả! Hãy dùng lệnh `/batdau` trước nhé."
   )
+  return
+
+try:
+  image_bytes = await image.read()
+  pil_img = Image.open(io.BytesIO(image_bytes))
+  text = pytesseract.image_to_string(pil_img)
+
+  numbers = re.findall(r"\d+", text.replace(",", ""))
+
+  if len(numbers) >= 2:
+    m_end = int(numbers[0])
+    e_end = int(numbers[1])
+
+    data = active_shifts[user_id]
+    earned = m_end - data["start_meso"]
+    used = data["start_elixir"] - e_end
+    del active_shifts[user_id]
+
+    report = (
+        f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
+        f"----------------------------------------\n"
+        f"💰 **Meso kiếm được:** `+{earned:,}`\n"
+        f"🧪 **Elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
+        f"----------------------------------------"
+    )
+    await interaction.followup.send(report)
+  else:
+    await interaction.followup.send(
+        "⚠️ Không đọc được thông số từ ảnh tổng kết. Hãy chắc chắn ảnh chụp rõ"
+        " số liệu!"
+    )
+except Exception as e:
+  await interaction.followup.send(f"❌ Lỗi xử lý ảnh: `{str(e)}`")
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
