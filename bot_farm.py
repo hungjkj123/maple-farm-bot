@@ -7,11 +7,13 @@ from discord.ext import commands
 from PIL import Image
 import pytesseract
 
+# Ép đường dẫn tesseract trên Linux của Railway
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Lưu trữ tạm thời trạng thái ca farm của người dùng
 active_shifts = {}
 
 
@@ -32,12 +34,10 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
   await interaction.response.defer(thinking=True)
 
   try:
-    # Tải ảnh và dùng Tesseract quét chữ
     image_bytes = await image.read()
     pil_img = Image.open(io.BytesIO(image_bytes))
     text = pytesseract.image_to_string(pil_img)
 
-    # Lọc các con số xuất hiện trong ảnh
     numbers = re.findall(r"\d+", text.replace(",", ""))
 
     if len(numbers) >= 2:
