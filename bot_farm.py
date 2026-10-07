@@ -26,7 +26,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với bộ lọc Meso thông minh chống đọc nhầm!")
+    print("Bot đã sẵn sàng với định dạng báo cáo chi tiết theo yêu cầu!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -37,7 +37,7 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso (Giới hạn chuẩn xác vùng chứa số Meso)
+        # 1. Đọc Meso
         crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
@@ -63,11 +63,11 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
             await interaction.followup.send(
                 f"🟢 **ĐÃ BẮT ĐẦU CA THÀNH CÔNG!**\n"
                 f"⏱️ Thời gian bắt đầu: `{time_str}`\n"
-                f"💰 Meso đầu: `{meso_val:,}`\n"
-                f"🧪 Elixir đầu: `{elixir_val:,}`"
+                f"💰 Meso ban đầu: `{meso_val:,}`\n"
+                f"🧪 Elixir ban đầu: `{elixir_val:,}`"
             )
         else:
-            await interaction.followup.send(f"⚠️ Không đọc được số Meso. Vui lòng kiểm tra lại ảnh.")
+            await interaction.followup.send(f"⚠️ Không đọc được số Meso ban đầu. Vui lòng kiểm tra lại ảnh.")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
@@ -85,13 +85,13 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso kết thúc với vùng crop chuẩn xác tương tự
+        # 1. Đọc Meso kết thúc
         crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        # 2. Đọc Elixir
+        # 2. Đọc Elixir kết thúc
         crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
@@ -99,6 +99,7 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         if valid_mesos:
             m_end = max(valid_mesos)
             data = active_shifts[user_id]
+            start_meso = data["start_meso"]
             start_elixir = data["start_elixir"]
             
             e_end = next((n for n in elixir_numbers if 100 <= n <= 9999), start_elixir)
@@ -112,13 +113,13 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
             hours = int(duration.total_seconds() // 3600)
             minutes = int((duration.total_seconds() % 3600) // 60)
             
-            earned = m_end - data["start_meso"]
-            
-            # Kiểm tra chống đọc nhầm số âm hoặc nhảy số quá vô lý
+            earned = m_end - start_meso
             if earned < 0:
                 earned = 0
 
             used = start_elixir - e_end
+            if used < 0:
+                used = 0
             
             total_hours = duration.total_seconds() / 3600
             meso_per_hour = int(earned / total_hours) if total_hours > 0 else earned
@@ -132,10 +133,13 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
             await interaction.followup.send(
                 f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
                 f"----------------------------------------\n"
-                f"⏱️ **Bắt đầu:** `{time_start_str}` | **Kết thúc:** `{time_end_str}`\n"
-                f"⏳ **Tổng thời gian:** `{time_duration_str}`\n"
-                f"💰 **Meso kiếm được:** `+{earned:,}` `(~{meso_per_hour:,} Meso/h)`\n"
-                f"🧪 **Elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
+                f"⏱️ **Thời gian bắt đầu:** `{time_start_str}`\n"
+                f"⏱️ **Thời gian kết thúc:** `{time_end_str}`\n"
+                f"⏳ **Tổng thời gian farm:** `{time_duration_str}`\n"
+                f"💰 **Lượng meso ban đầu:** `{start_meso:,}`\n"
+                f"💰 **Lượng meso khi kết thúc:** `{m_end:,}`\n"
+                f"💵 **Lượng meso kiếm được:** `+{earned:,}` `(~{meso_per_hour:,} Meso/h)`\n"
+                f"🧪 **Bình elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
                 f"----------------------------------------"
             )
         else:
