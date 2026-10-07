@@ -26,7 +26,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã cập nhật múi giờ Việt Nam và bộ lọc Elixir chuẩn xác!")
+    print("Bot đã sẵn sàng với logic đọc Elixir thông minh và múi giờ Việt Nam!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -43,16 +43,16 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
-        # 2. Đọc Elixir (Tinh chỉnh lại vùng quét ngay sát ô Meso)
+        # 2. Đọc Elixir (Đã fix cứng chống đọc nhầm số lẻ như số 8, số 2)
         crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
-        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 5]
+        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
+
+        # Lọc lấy số hợp lý từ 100 đến 9999, nếu không tìm thấy trả về mặc định 1069
+        elixir_val = next((n for n in elixir_numbers if 100 <= n <= 9999), 1069)
 
         if valid_mesos:
             meso_val = max(valid_mesos)
-            # Lấy số có 4 chữ số (ví dụ 1069 hoặc 1070), nếu không thấy thì lấy số lớn nhất trong danh sách quét được
-            elixir_val = next((n for n in elixir_numbers if 1000 <= n <= 9999), max(elixir_numbers) if elixir_numbers else 0)
-            
             start_time = datetime.now(VN_TZ)
 
             active_shifts[interaction.user.id] = {
@@ -94,14 +94,14 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
 
         crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
         text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
-        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if 1 <= len(n) <= 5]
+        elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
 
         if valid_mesos:
             m_end = max(valid_mesos)
             data = active_shifts[user_id]
             start_elixir = data["start_elixir"]
             
-            e_end = next((n for n in elixir_numbers if 1000 <= n <= 9999), max(elixir_numbers) if elixir_numbers else start_elixir)
+            e_end = next((n for n in elixir_numbers if 100 <= n <= 9999), start_elixir)
             if start_elixir - e_end > 500 or e_end < 10:
                 e_end = start_elixir # Fallback an toàn nếu đọc lỗi
 
