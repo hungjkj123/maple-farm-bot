@@ -26,7 +26,7 @@ def preprocess_crop(pil_crop):
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với định dạng báo cáo chi tiết theo yêu cầu!")
+    print("Bot đã sẵn sàng với vùng quét Meso chuẩn xác!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -37,8 +37,8 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso
-        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
+        # 1. Đọc Meso (Nới rộng vùng crop để không bị hụt chữ số)
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.78), height))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
@@ -85,8 +85,8 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso kết thúc
-        crop_meso = pil_img.crop((int(width * 0.63), int(height * 0.93), int(width * 0.72), int(height * 0.98)))
+        # 1. Đọc Meso kết thúc (Nới rộng vùng crop)
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.78), height))
         text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
