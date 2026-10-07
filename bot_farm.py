@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageEnhance, ImageOps
+from PIL import Image, ImageOps
 import pytesseract
 
 intents = discord.Intents.default()
@@ -18,15 +18,20 @@ active_shifts = {}
 VN_TZ = timezone(timedelta(hours=7))
 
 def preprocess_crop(pil_crop):
-    gray = ImageOps.grayscale(pil_crop)
-    contrast = ImageEnhance.Contrast(gray).enhance(3.5)
-    resized = contrast.resize((pil_crop.width * 3, pil_crop.height * 3), Image.Resampling.LANCZOS)
-    return resized
+    # Phóng to gấp 4 lần để OCR dễ đọc nét chữ nhỏ trong game
+    resized = pil_crop.resize((pil_crop.width * 4, pil_crop.height * 4), Image.Resampling.LANCZOS)
+    gray = ImageOps.grayscale(resized)
+    
+    # Chuyển đổi nhị phân tuyệt đối (Thresholding) để xóa sạch bóng mờ/anti-aliasing của font game
+    # Chỉnh ngưỡng (threshold) tùy thuộc vào độ sáng của chữ số trong game
+    threshold = 170
+    binary = gray.point(lambda p: 255 if p > threshold else 0)
+    return binary
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với vùng quét Meso chuẩn xác!")
+    print("Bot đã sẵn sàng với bộ lọc nhị phân chuẩn font game!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -37,15 +42,15 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso (Nới rộng vùng crop để không bị hụt chữ số)
-        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.78), height))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
+        # 1. Đọc Meso (Vùng tọa độ góc dưới bên phải)
+        crop_meso = pil_img.crop((int(width * 0.60), int(height * 0.95), int(width * 0.72), int(height * 0.99)))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
         # 2. Đọc Elixir
-        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
+        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.95), int(width * 0.77), int(height * 0.99)))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
         elixir_val = next((n for n in elixir_numbers if 100 <= n <= 9999), 1069)
 
@@ -85,15 +90,15 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso kết thúc (Nới rộng vùng crop)
-        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.90), int(width * 0.78), height))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
+        # 1. Đọc Meso kết thúc
+        crop_meso = pil_img.crop((int(width * 0.60), int(height * 0.95), int(width * 0.72), int(height * 0.99)))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
         # 2. Đọc Elixir kết thúc
-        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.92), int(width * 0.79), height))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
+        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.95), int(width * 0.77), int(height * 0.99)))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
 
         if valid_mesos:
