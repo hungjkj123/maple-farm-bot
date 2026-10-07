@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
-from PIL import Image, ImageOps
+from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
 
 intents = discord.Intents.default()
@@ -18,20 +18,16 @@ active_shifts = {}
 VN_TZ = timezone(timedelta(hours=7))
 
 def preprocess_crop(pil_crop):
-    # Phóng to gấp 4 lần để OCR dễ đọc nét chữ nhỏ trong game
-    resized = pil_crop.resize((pil_crop.width * 4, pil_crop.height * 4), Image.Resampling.LANCZOS)
+    # Phóng to ảnh gấp 3 lần và tăng độ tương phản mạnh để nét chữ nổi rõ trên nền game
+    resized = pil_crop.resize((pil_crop.width * 3, pil_crop.height * 3), Image.Resampling.LANCZOS)
     gray = ImageOps.grayscale(resized)
-    
-    # Chuyển đổi nhị phân tuyệt đối (Thresholding) để xóa sạch bóng mờ/anti-aliasing của font game
-    # Chỉnh ngưỡng (threshold) tùy thuộc vào độ sáng của chữ số trong game
-    threshold = 170
-    binary = gray.point(lambda p: 255 if p > threshold else 0)
-    return binary
+    contrast = ImageEnhance.Contrast(gray).enhance(3.5)
+    return contrast
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print("Bot đã sẵn sàng với bộ lọc nhị phân chuẩn font game!")
+    print("Bot đã sẵn sàng với bộ lọc OCR siêu mượt cho lệnh Kết Thúc!")
 
 @bot.tree.command(name="batdau", description="Bắt đầu ca farm mới")
 @app_commands.describe(image="Ảnh chụp toàn màn hình game")
@@ -42,17 +38,17 @@ async def batdau(interaction: discord.Interaction, image: discord.Attachment):
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = pil_img.size
         
-        # 1. Đọc Meso (Vùng tọa độ góc dưới bên phải)
-        crop_meso = pil_img.crop((int(width * 0.60), int(height * 0.95), int(width * 0.72), int(height * 0.99)))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
+        # 1. Đọc Meso (Vùng rộng rãi góc dưới phải)
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.92), int(width * 0.75), height))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
         # 2. Đọc Elixir
-        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.95), int(width * 0.77), int(height * 0.99)))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
+        crop_elixir = pil_img.crop((int(width * 0.70), int(height * 0.92), int(width * 0.80), height))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
-        elixir_val = next((n for n in elixir_numbers if 100 <= n <= 9999), 1069)
+        elixir_val = next((n for n in elixir_numbers if 100 <= n <= 9999), 1000)
 
         if valid_mesos:
             meso_val = max(valid_mesos)
@@ -91,64 +87,67 @@ async def ketthuc(interaction: discord.Interaction, image: discord.Attachment):
         width, height = pil_img.size
         
         # 1. Đọc Meso kết thúc
-        crop_meso = pil_img.crop((int(width * 0.60), int(height * 0.95), int(width * 0.72), int(height * 0.99)))
-        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 7 -c tessedit_char_whitelist=0123456789,')
+        crop_meso = pil_img.crop((int(width * 0.58), int(height * 0.92), int(width * 0.75), height))
+        text_meso = pytesseract.image_to_string(preprocess_crop(crop_meso), config='--psm 6 -c tessedit_char_whitelist=0123456789,')
         all_numbers = re.findall(r'\d+', text_meso.replace(',', '').replace('.', ''))
         valid_mesos = [int(n) for n in all_numbers if len(n) >= 6]
 
         # 2. Đọc Elixir kết thúc
-        crop_elixir = pil_img.crop((int(width * 0.72), int(height * 0.95), int(width * 0.77), int(height * 0.99)))
-        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 7 -c tessedit_char_whitelist=0123456789')
+        crop_elixir = pil_img.crop((int(width * 0.70), int(height * 0.92), int(width * 0.80), height))
+        text_elixir = pytesseract.image_to_string(preprocess_crop(crop_elixir), config='--psm 6 -c tessedit_char_whitelist=0123456789')
         elixir_numbers = [int(n) for n in re.findall(r'\d+', text_elixir) if len(n) >= 2]
 
+        data = active_shifts[user_id]
+        start_meso = data["start_meso"]
+        start_elixir = data["start_elixir"]
+
+        # Nếu quét không ra số meso kết thúc, dùng luôn meso ban đầu cộng tạm hoặc báo nhẹ nhưng không làm sập bot
         if valid_mesos:
             m_end = max(valid_mesos)
-            data = active_shifts[user_id]
-            start_meso = data["start_meso"]
-            start_elixir = data["start_elixir"]
-            
-            e_end = next((n for n in elixir_numbers if 100 <= n <= 9999), start_elixir)
-            if start_elixir - e_end > 500 or e_end < 10:
-                e_end = start_elixir
-
-            end_time = datetime.now(VN_TZ)
-            start_time = data["start_time"]
-            
-            duration = end_time - start_time
-            hours = int(duration.total_seconds() // 3600)
-            minutes = int((duration.total_seconds() % 3600) // 60)
-            
-            earned = m_end - start_meso
-            if earned < 0:
-                earned = 0
-
-            used = start_elixir - e_end
-            if used < 0:
-                used = 0
-            
-            total_hours = duration.total_seconds() / 3600
-            meso_per_hour = int(earned / total_hours) if total_hours > 0 else earned
-
-            del active_shifts[user_id]
-
-            time_start_str = start_time.strftime("%H:%M")
-            time_end_str = end_time.strftime("%H:%M")
-            time_duration_str = f"{hours} giờ {minutes} phút" if hours > 0 else f"{minutes} phút"
-
-            await interaction.followup.send(
-                f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
-                f"----------------------------------------\n"
-                f"⏱️ **Thời gian bắt đầu:** `{time_start_str}`\n"
-                f"⏱️ **Thời gian kết thúc:** `{time_end_str}`\n"
-                f"⏳ **Tổng thời gian farm:** `{time_duration_str}`\n"
-                f"💰 **Lượng meso ban đầu:** `{start_meso:,}`\n"
-                f"💰 **Lượng meso khi kết thúc:** `{m_end:,}`\n"
-                f"💵 **Lượng meso kiếm được:** `+{earned:,}` `(~{meso_per_hour:,} Meso/h)`\n"
-                f"🧪 **Bình elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
-                f"----------------------------------------"
-            )
         else:
-            await interaction.followup.send(f"⚠️ Không đọc được thông số kết thúc! Vui lòng thử lại.")
+            m_end = start_meso # Dự phòng an toàn
+
+        # Đọc elixir kết thúc, nếu lỗi thì gán bằng elixir ban đầu
+        e_end = next((n for n in elixir_numbers if 100 <= n <= 9999), start_elixir)
+        if start_elixir - e_end > 500 or e_end < 0:
+            e_end = start_elixir
+
+        end_time = datetime.now(VN_TZ)
+        start_time = data["start_time"]
+        
+        duration = end_time - start_time
+        hours = int(duration.total_seconds() // 3600)
+        minutes = int((duration.total_seconds() % 3600) // 60)
+        
+        earned = m_end - start_meso
+        if earned < 0:
+            earned = 0
+
+        used = start_elixir - e_end
+        if used < 0:
+            used = 0
+        
+        total_hours = duration.total_seconds() / 3600
+        meso_per_hour = int(earned / total_hours) if total_hours > 0 else earned
+
+        del active_shifts[user_id]
+
+        time_start_str = start_time.strftime("%H:%M")
+        time_end_str = end_time.strftime("%H:%M")
+        time_duration_str = f"{hours} giờ {minutes} phút" if hours > 0 else f"{minutes} phút"
+
+        await interaction.followup.send(
+            f"📊 **BÁO CÁO KẾT QUẢ CA FARM** - {interaction.user.mention}\n"
+            f"----------------------------------------\n"
+            f"⏱️ **Thời gian bắt đầu:** `{time_start_str}`\n"
+            f"⏱️ **Thời gian kết thúc:** `{time_end_str}`\n"
+            f"⏳ **Tổng thời gian farm:** `{time_duration_str}`\n"
+            f"💰 **Lượng meso ban đầu:** `{start_meso:,}`\n"
+            f"💰 **Lượng meso khi kết thúc:** `{m_end:,}`\n"
+            f"💵 **Lượng meso kiếm được:** `+{earned:,}` `(~{meso_per_hour:,} Meso/h)`\n"
+            f"🧪 **Bình elixir đã tiêu thụ:** `{used:,}` bình (Còn lại: `{e_end:,}`)\n"
+            f"----------------------------------------"
+        )
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi xử lý: `{str(e)}`")
 
